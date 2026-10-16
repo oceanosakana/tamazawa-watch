@@ -96,6 +96,15 @@ NOTIFY_SOLD_OUT = _envb("NOTIFY_SOLD_OUT", False)
 NOTIFY_ANNOUNCEMENT = _envb("NOTIFY_ANNOUNCEMENT", True)
 NOTIFY_TEXT_CHANGE = _envb("NOTIFY_TEXT_CHANGE", False)
 EXIT_ON_DETECT = _envb("EXIT_ON_DETECT", False)
+
+# 起動通知: 既定では GitHub Actions の手動実行 (workflow_dispatch) のときだけ送る。
+# cron 実行ごとに送ると約 5 分おきに大量通知になるため、明示的に NOTIFY_START を
+# 指定しない限り定時実行では送らない。
+GITHUB_EVENT_NAME = _env("GITHUB_EVENT_NAME")
+GITHUB_RUN_ID = _env("GITHUB_RUN_ID")
+GITHUB_REPOSITORY = _env("GITHUB_REPOSITORY")
+GITHUB_SERVER_URL = _env("GITHUB_SERVER_URL", "https://github.com")
+NOTIFY_START = _envb("NOTIFY_START", GITHUB_EVENT_NAME == "workflow_dispatch")
 ONCE = _envb("ONCE", False)
 DRY_RUN = _envb("DRY_RUN", False)
 STATE_PATH = _env("STATE_PATH", "state.json")
@@ -502,6 +511,50 @@ def notify_sold_out(info: dict) -> None:
     post_discord({"username": "霜ばしら監視ボット", "embeds": [embed]})
 
 
+def _run_url() -> str | None:
+    """GitHub Actions の実行ログ URL を組み立てる（ローカル実行時は None）。"""
+    if GITHUB_RUN_ID and GITHUB_REPOSITORY:
+        return f"{GITHUB_SERVER_URL}/{GITHUB_REPOSITORY}/actions/runs/{GITHUB_RUN_ID}"
+    return None
+
+
+def notify_start(state: dict, start_at: datetime | None, start_src: str) -> None:
+    """ボット起動を Discord へ通知する。"""
+    if GITHUB_EVENT_NAME == "workflow_dispatch":
+        trigger = "手動実行"
+    elif GITHUB_EVENT_NAME:
+        trigger = f"{GITHUB_EVENT_NAME}（定時実行）"
+    else:
+        trigger = "ローカル実行"
+
+    if start_at:
+        start_value = (
+            f"**{ts_str(start_at)}**\n"
+            f"（{start_src} / 開始 {LEAD_MINUTES:g} 分前から高速監視）"
+        )
+    else:
+        start_value = "開始予定の告知はまだ検出していません（通常間隔で監視します）"
+
+    embed = {
+        "title": "🚀 霜ばしら監視ボットを起動しました",
+        "description": f"監視を開始します（この実行は最大 {MAX_SECONDS:g} 秒間）。",
+        "color": 0x2ECC71,
+        "fields": [
+            {"name": "起動方法", "value": trigger, "inline": True},
+            {"name": "前回の状態", "value": f"`{state.get('status', '(なし)')}`", "inline": True},
+            {"name": "監視モード", "value":
+                f"`{MODE}` / 通常 {INTERVAL_SECONDS:g} 秒・高速 {FAST_INTERVAL_SECONDS:g} 秒",
+             "inline": False},
+            {"name": "開始予定", "value": start_value, "inline": False},
+        ],
+    }
+    url = _run_url()
+    if url:
+        embed["url"] = url
+        embed["footer"] = {"text": "実行ログを開く"}
+    post_discord({"username": "霜ばしら監視ボット", "embeds": [embed]})
+
+
 def _notify_repeated(embed: dict, alert: bool) -> None:
     times = max(1, REPEAT_NOTIFY) if alert else 1
     for i in range(times):
@@ -645,6 +698,9 @@ def main() -> int:
         log("開始予定の告知はまだ検出していません。通常間隔で監視します。")
 
     log(f"前回の状態: status={state.get('status', '(なし)')}")
+
+    if NOTIFY_START:
+        notify_start(state, start_at, start_src)
 
     last_status = state.get("status")
     notified_purchasable = state.get("status") == "purchasable"

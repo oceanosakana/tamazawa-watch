@@ -90,7 +90,7 @@ tamazawa-watch/
 
 ### 手順 4: 動作確認
 
-**Actions → 霜ばしら 監視 → Run workflow** を実行します。初回は「基準の記録」だけを行い、通知はしません。
+**Actions → 霜ばしら 監視 → Run workflow** を実行します。初回は「基準の記録」だけを行い、検知通知はしません。ただし**手動実行のときは起動通知（🚀）が Discord に届きます**ので、Webhook の疎通確認にも使えます（起動通知が不要な場合は `NOTIFY_START=0`）。
 
 ```
 [2026-10-16 19:22:06 JST] 開始予定の告知はまだ検出していません。通常間隔で監視します。
@@ -107,6 +107,7 @@ cd tamazawa-watch
 $env:DRY_RUN = "1"
 python -c "import monitor as m; m.notify_purchasable({'price': 4860})"
 python -c "import monitor as m; from datetime import datetime,timedelta; m.notify_announcement('テスト', '11月20日（金）19時より受付開始します', datetime.now(m.JST)+timedelta(days=5))"
+python -c "import monitor as m; m.notify_start({'status': 'unpurchasable'}, None, '')"
 ```
 
 ---
@@ -149,6 +150,7 @@ X を見て日時が分かったら、**Run workflow** で `start_at` に直接�
 
 | 通知 | 条件 |
 |---|---|
+| 🚀 ボットを起動しました | 手動実行（Run workflow）で起動したとき |
 | 🎉 販売開始 / 再入荷を検知 | 商品ページが `purchasable` になった（最重要・3 回再送） |
 | 📢 受付開始の告知を検出 | 商品説明文 / お知らせ / から告知文と日時を検出 |
 | 🐦 公式Xに新しい投稿 | X の投稿数が増えた（本文は取れないので確認を促す） |
@@ -219,6 +221,7 @@ X を見て日時が分かったら、**Run workflow** で `start_at` に直接�
 | `NOTIFY_ANNOUNCEMENT` | `1` | 告知検知を通知する |
 | `NOTIFY_TEXT_CHANGE` | `0` | 説明文の変化だけで通知する |
 | `NOTIFY_SOLD_OUT` | `0` | 売り切れ復帰も通知する |
+| `NOTIFY_START` | 手動実行時のみ有効 | 起動時に Discord へ起動通知を送る（`0` で明示的に無効化） |
 | `EXIT_ON_DETECT` | `0` | 検知した時点で終了 |
 | `ONCE` | `0` | 1 回だけ確認して終了 |
 | `STATE_PATH` | `state.json` | 状態ファイルのパス |
