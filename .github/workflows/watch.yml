@@ -1,0 +1,79 @@
+name: 霜ばしら 監視
+
+on:
+  # 定期的に監視を開始する（GitHub の cron は最短 5 分間隔・遅延あり）
+  schedule:
+    - cron: "*/5 * * * *"
+  # 手動実行（販売開始時刻が告知されたらこちらで長時間監視する）
+  workflow_dispatch:
+    inputs:
+      max_seconds:
+        description: "1 回の実行で監視し続ける秒数（例: 330分監視したいなら 19800）"
+        required: false
+        default: "290"
+      interval_seconds:
+        description: "通常の監視間隔（秒）"
+        required: false
+        default: "10"
+      fast_interval_seconds:
+        description: "START_AT 前後で使う高速監視の間隔（秒）"
+        required: false
+        default: "2"
+      start_at:
+        description: "販売開始予定時刻 (JST, 例: 2026-10-20T19:00:00)。空なら通常監視"
+        required: false
+        default: ""
+      lead_minutes:
+        description: "start_at の何分前から高速監視を始めるか"
+        required: false
+        default: "10"
+      timeout_minutes:
+        description: "ジョブのタイムアウト（分）。max_seconds より大きくすること（最大 360）"
+        required: false
+        default: "15"
+
+# 実行を直列化する（同時実行による二重通知を防ぐ）
+concurrency:
+  group: tamazawa-watch
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(github.event.inputs.timeout_minutes || '15') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 監視を実行
+        env:
+          PYTHONIOENCODING: utf-8
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_MENTION: ${{ vars.DISCORD_MENTION }}
+          MAX_SECONDS: ${{ github.event.inputs.max_seconds || '290' }}
+          INTERVAL_SECONDS: ${{ github.event.inputs.interval_seconds || '10' }}
+          FAST_INTERVAL_SECONDS: ${{ github.event.inputs.fast_interval_seconds || '2' }}
+          LEAD_MINUTES: ${{ github.event.inputs.lead_minutes || '10' }}
+          START_AT: ${{ github.event.inputs.start_at }}
+          REPEAT_NOTIFY: "3"
+        run: python monitor.py
+
+      - name: state.json をコミット（状態が変化したときだけ）
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- state.json
+          if git diff --cached --quiet -- state.json; then
+            echo "state.json に変化なし。コミットしません。"
+            exit 0
+          fi
+          git pull --rebase --autostash || true
+          git commit -m "chore: update watch state [skip ci]"
+          git push
